@@ -1,7 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
 // Set up the worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export interface BillData {
   fileName: string;
@@ -59,64 +60,72 @@ function parseTextContent(text: string, fileName: string): BillData {
     rawText: text,
   };
 
-  // Extract month and year from file name or text
-  const monthYearMatch = fileName.match(/(\d{2})(\d{2})/);
-  if (monthYearMatch) {
-    const month = monthYearMatch[1];
-    const year = monthYearMatch[2];
-    data.month = month;
-    data.year = `20${year}`;
+  // Helper to parse numbers in Brazilian format (1.234,56 -> 1234.56)
+  const parseNum = (val: string) => {
+    if (!val) return 0;
+    return parseFloat(val.replace(/\./g, '').replace(',', '.'));
+  };
+
+  // Extract month and year from text (format MM/YYYY)
+  const dateMatch = text.match(/(\d{2})\/(\d{4})/);
+  if (dateMatch) {
+    data.month = dateMatch[1];
+    data.year = dateMatch[2];
+  } else {
+    // Fallback to file name
+    const monthYearMatch = fileName.match(/(\d{2})(\d{2})/);
+    if (monthYearMatch) {
+      data.month = monthYearMatch[1];
+      data.year = `20${monthYearMatch[2]}`;
+    }
   }
 
-  // Extract consumption values
-  const consumoMedidoMatch = text.match(/Consumo\s+Medido[^\d]*(\d+(?:[.,]\d+)?)/i);
-  if (consumoMedidoMatch) {
-    data.consumoMedido = parseFloat(consumoMedidoMatch[1].replace(',', '.'));
-  }
-
-  const consumoFaturadoMatch = text.match(/Consumo\s+Faturado[^\d]*(\d+(?:[.,]\d+)?)/i);
+  // Extract consumption values - Look for CONSUMO FATURADO in history or billing
+  const consumoFaturadoMatch = text.match(/CONSUMO\s+FATURADO\s+(\d+(?:\.\d+)?(?:,\d+)?)/i);
   if (consumoFaturadoMatch) {
-    data.consumoFaturado = parseFloat(consumoFaturadoMatch[1].replace(',', '.'));
+    data.consumoFaturado = parseNum(consumoFaturadoMatch[1]);
+  } else {
+    // Try another pattern
+    const consumoMatch = text.match(/ENERGIA\s+ELET\s+CONSUMO[^\d]*(\d+(?:\.\d+)?(?:,\d+)?)/i);
+    if (consumoMatch) {
+      data.consumoFaturado = parseNum(consumoMatch[1]);
+    }
   }
 
-  // Extract solar generation and credits
-  const geracaoMatch = text.match(/Geração\s+(?:Solar|Distribuída)[^\d]*(\d+(?:[.,]\d+)?)/i);
+  // Extract solar generation - Look for GERAC kWh
+  const geracaoMatch = text.match(/GERAC\s+kWh\s+(\d+(?:\.\d+)?(?:,\d+)?)/i);
   if (geracaoMatch) {
-    data.geracaoSolar = parseFloat(geracaoMatch[1].replace(',', '.'));
+    data.geracaoSolar = parseNum(geracaoMatch[1]);
   }
 
-  const creditosMatch = text.match(/Crédito[^\d]*(\d+(?:[.,]\d+)?)/i);
+  // Extract solar credits - Look for Saldo Acumulado
+  const creditosMatch = text.match(/Saldo\s+Acumulado[^\d]*(\d+(?:\.\d+)?(?:,\d+)?)/i);
   if (creditosMatch) {
-    data.creditosSolares = parseFloat(creditosMatch[1].replace(',', '.'));
+    data.creditosSolares = parseNum(creditosMatch[1]);
   }
 
-  const injetadaMatch = text.match(/Injetada[^\d]*(\d+(?:[.,]\d+)?)/i);
+  // Extract energy injected - Look for ENERGIA INJETADA
+  const injetadaMatch = text.match(/ENERGIA\s+INJETADA[^\d]*-\s*(\d+(?:\.\d+)?(?:,\d+)?)/i);
   if (injetadaMatch) {
-    data.energiaInjetada = parseFloat(injetadaMatch[1].replace(',', '.'));
+    data.energiaInjetada = parseNum(injetadaMatch[1]);
   }
 
-  // Calculate autoconsumo (percentage of generated energy consumed locally)
+  // Calculate autoconsumo
   if (data.geracaoSolar > 0) {
     const consumidoLocalmente = data.geracaoSolar - data.energiaInjetada;
-    data.autoconsumo = (consumidoLocalmente / data.geracaoSolar) * 100;
+    data.autoconsumo = Math.max(0, Math.min(100, (consumidoLocalmente / data.geracaoSolar) * 100));
   }
 
-  // Extract tariff
-  const tarifaMatch = text.match(/Tarifa[^\d]*R\$\s*(\d+(?:[.,]\d+)?)/i);
-  if (tarifaMatch) {
-    data.tarifa = parseFloat(tarifaMatch[1].replace(',', '.'));
-  }
-
-  // Extract discount/subsidy
-  const descontoMatch = text.match(/Desconto[^\d]*R\$\s*(\d+(?:[.,]\d+)?)/i);
-  if (descontoMatch) {
-    data.desconto = parseFloat(descontoMatch[1].replace(',', '.'));
-  }
-
-  // Extract total bill
-  const totalMatch = text.match(/Total\s+(?:a\s+Pagar|da\s+Fatura)[^\d]*R\$\s*(\d+(?:[.,]\d+)?)/i);
+  // Extract total bill - Look for R$ followed by value
+  const totalMatch = text.match(/R\$\s*(\d+(?:\.\d+)?(?:,\d+)?)/i);
   if (totalMatch) {
-    data.totalFatura = parseFloat(totalMatch[1].replace(',', '.'));
+    data.totalFatura = parseNum(totalMatch[1]);
+  }
+
+  // Extract tariff - Look for price per kWh
+  const tarifaMatch = text.match(/(\d,\d{6})/);
+  if (tarifaMatch) {
+    data.tarifa = parseNum(tarifaMatch[1]);
   }
 
   return data;
