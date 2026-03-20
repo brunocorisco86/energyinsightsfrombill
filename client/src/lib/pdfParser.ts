@@ -52,17 +52,3 @@ export async function parsePDF(file: File): Promise<BillData> {
     totalFatura: parsed.totalValue,
   };
 }
-
-// Helper function to extract multiple values from text
-export function extractValues(text: string, patterns: Record<string, RegExp>): Record<string, number> {
-  const result: Record<string, number> = {};
-
-  for (const [key, pattern] of Object.entries(patterns)) {
-    const match = text.match(pattern);
-    if (match && match[1]) {
-      result[key] = parseFloat(match[1].replace(',', '.'));
-    }
-  }
-
-  return result;
-}
