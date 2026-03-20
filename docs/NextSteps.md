@@ -3,6 +3,7 @@
 Este documento lista as tarefas imediatas para melhoria e refinamento do projeto.
 
 ## 🛠️ Melhorias Técnicas
+- [ ] **Organização de Dados:** Padronizar a nomenclatura dos arquivos de amostra em `data/raw/` para facilitar o carregamento em testes automatizados.
 - [ ] **Otimização do Parser de PDF:** Melhorar a detecção de campos variáveis nas faturas da Copel.
 - [ ] **UX/UI:** Ajustar a responsividade do dashboard para diferentes telas.
 - [ ] **Desempenho:** Reduzir o tamanho dos assets via árvore de dependências (Vite build optimization).
