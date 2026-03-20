@@ -45,8 +45,11 @@ export function parseCopelPdf(t: string): ParsedInvoice {
   // 1. Unidade Consumidora (UC) - Exact 9 digits
   const consumptionUnit = pick(t, /\b(\d{9})\b/) || "0";
 
-  // 2. Due Date (First DD/MM/YYYY in text)
-  const dueDate = pick(t, /\b(\d{2}\/\d{2}\/20\d{2})\b/) || "01/01/2026";
+  // 2. Due Date (Keyword anchored or first DD/MM/YYYY)
+  const dueDate =
+    pick(t, /Vencimento:?\s*(\d{2}\/\d{2}\/20\d{2})/) ||
+    pick(t, /\b(\d{2}\/\d{2}\/20\d{2})\b/) ||
+    "01/01/2026";
 
   // 3. Client Name
   const clientName =
@@ -54,27 +57,27 @@ export function parseCopelPdf(t: string): ParsedInvoice {
     pick(t, /Nome:\s*(\S+(?:\s+\S+){0,4})/) ||
     "Desconhecido";
 
-  // 4. Reference Month (Anchored to due date to avoid CNPJ bug)
-  const escapedDue = dueDate.replace(/\//g, "\\/");
-  const beforeDue = t.match(
-    new RegExp(`((?:0[1-9]|1[0-2])\\/20\\d{2})\\s+${escapedDue}`)
-  );
-  const referenceMonth = beforeDue ? beforeDue[1] : "01/2026";
+  // 4. Reference Month (Anchored to keyword or near due date)
+  const referenceMonth =
+    pick(t, /M[eê]s\s+de\s+Refer[eê]ncia:?\s*((?:0[1-9]|1[0-2])\/20\d{2})/) ||
+    pick(t, /((?:0[1-9]|1[0-2])\/20\d{2})\s+Vencimento/) ||
+    pick(t, new RegExp(`((?:0[1-9]|1[0-2])\\/20\\d{2})\\s+${dueDate.replace(/\//g, "\\/")}`)) ||
+    "01/2026";
 
-  // 5. Meter Readings (Complex line: TP RS TP ... deltas)
+  // 5. Meter Readings (Complex line: TP RS TP ... deltas) - Handle Brazilian numeric format with commas
   const leit = t.match(
-    /CONSUMO kWh\s+CONSUMO kWh\s+GERAC kWh\s+TP\s+RS\s+TP\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+\d+\s+\d+\s+\d+\s+(\d[\d.]*)\s+(\d[\d.]*)\s+(\d[\d.]*)/
+    /CONSUMO kWh\s+CONSUMO kWh\s+GERAC kWh\s+TP\s+RS\s+TP\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+\d+\s+\d+\s+\d+\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)/
   );
-  const activeConsumptionKwh = leit ? brNum(leit[7]) : 0;
-  const peakKwh = leit ? brNum(leit[8]) : 0;
-  const injectedEnergyKwh = leit ? brNum(leit[9]) : 0;
+  const activeConsumptionKwh = leit ? brNum(leit[1]) : 0;
+  const peakKwh = leit ? brNum(leit[2]) : 0;
+  const injectedEnergyKwh = leit ? brNum(leit[3]) : 0;
 
   // 6. SCEE Balances (Handling optional accents)
   const creditMonthKwh = brNum(
-    pick(t, /Saldo\s+M[eê]s\s+no\s+\(TP\)\s+Todos\s+os\s+Per[ií]odos\s+(\d+)/) || ""
+    pick(t, /Saldo\s+M[eê]s\s+no\s+\(TP\)\s+Todos\s+os\s+Per[ií]odos\s+([\d.,]+)/) || ""
   );
   const creditBalanceKwh = brNum(
-    pick(t, /Saldo\s+Acumulado\s+no\s+\(TP\)\s+Todos\s+os\s+Per[ií]odos\s+(\d+)/) || ""
+    pick(t, /Saldo\s+Acumulado\s+no\s+\(TP\)\s+Todos\s+os\s+Per[ií]odos\s+([\d.,]+)/) || ""
   );
 
   // 7. Real Economic Value (COFINS/PIS Base)
